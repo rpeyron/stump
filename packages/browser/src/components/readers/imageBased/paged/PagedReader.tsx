@@ -24,6 +24,21 @@ export type PagedReaderProps = {
  * Note: This component lacks animations between pages. The `AnimatedPagedReader` component
  * will have animations between pages, but is currently a WIP
  */
+const svgCursor = (svg: string, x: number, y: number) =>
+	`url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, pointer`
+
+const LEFT_ARROW_CURSOR = svgCursor(
+	`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M18 5 L8 14 L18 23 Z" fill="white" stroke="black" stroke-width="2.5" stroke-linejoin="round"/></svg>`,
+	8,
+	14,
+)
+
+const RIGHT_ARROW_CURSOR = svgCursor(
+	`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M10 5 L20 14 L10 23 Z" fill="white" stroke="black" stroke-width="2.5" stroke-linejoin="round"/></svg>`,
+	20,
+	14,
+)
+
 function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	const { pageSets, book, getPageUrl } = useImageBaseReaderContext()
 	const {
@@ -64,7 +79,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	 * Pan & zoom for the page set. Double tapping zooms in on the tapped point, and double
 	 * tapping while zoomed in returns the page to its "fit to screen" state.
 	 */
-	const { reset: resetPanZoom, consumeDidPan, didPan } = usePanZoom({
+	const { reset: resetPanZoom, consumeDidPan, didPan, isZoomed } = usePanZoom({
 		targetRef: pageSetRef,
 		viewportRef,
 		doubleTapScale: doubleTapZoom ?? 0,
@@ -206,6 +221,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				<SideBarControl
 					fixed={fixSideNavigation}
 					position="left"
+					cursor={LEFT_ARROW_CURSOR}
 					onClick={() => handleLeftwardPageChange()}
 				/>
 			)}
@@ -214,6 +230,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				ref={pageSetRef}
 				currentPage={currentPage}
 				getPageUrl={getPageUrl}
+				isZoomed={isZoomed}
 				onPageClick={(e) => {
 					if (consumeDidPan()) return
 					// If double-tap zoom is disabled, toggle immediately (no delay)
@@ -247,6 +264,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				<SideBarControl
 					fixed={fixSideNavigation}
 					position="right"
+					cursor={RIGHT_ARROW_CURSOR}
 					onClick={() => handleRightwardPageChange()}
 				/>
 			)}
@@ -261,6 +279,8 @@ type SideBarControlProps = {
 	position: 'left' | 'right'
 	/** Whether the sidebar should be fixed to the screen */
 	fixed: boolean
+	/** Optional cursor override */
+	cursor?: string
 }
 
 /**
@@ -268,7 +288,7 @@ type SideBarControlProps = {
  * clicked, will call the onClick callback. This is used in the `PagedReader` component for
  * navigating to the next/previous page.
  */
-function SideBarControl({ onClick, position, fixed }: SideBarControlProps) {
+function SideBarControl({ onClick, position, fixed, cursor }: SideBarControlProps) {
 	return (
 		<div
 			className={clsx(
@@ -279,6 +299,7 @@ function SideBarControl({ onClick, position, fixed }: SideBarControlProps) {
 				{ 'left-0': position === 'left' },
 			)}
 			onClick={onClick}
+			style={{ cursor: cursor ?? 'inherit' }}
 		/>
 	)
 }

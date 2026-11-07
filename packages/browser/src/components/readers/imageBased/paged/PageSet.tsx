@@ -13,10 +13,11 @@ type Props = {
 	getPageUrl: (page: number) => string
 	onPageClick: (e: React.MouseEvent) => void
 	onPageDoubleClick: () => void
+	isZoomed?: boolean
 }
 
 const PageSet = forwardRef<HTMLDivElement, Props>(
-	({ currentPage, getPageUrl, onPageClick, onPageDoubleClick }, ref) => {
+	({ currentPage, getPageUrl, onPageClick, onPageDoubleClick, isZoomed }, ref) => {
 		const { setPageSize, book, pageSets } = useImageBaseReaderContext()
 		const {
 			bookPreferences: { imageScaling, brightness, readingDirection },
@@ -51,6 +52,7 @@ const PageSet = forwardRef<HTMLDivElement, Props>(
 					// The pan/zoom transform is applied about the center of the page
 					transformOrigin: 'center center',
 					touchAction: 'none',
+					cursor: isZoomed ? 'grab' : 'default',
 				}}
 				onDoubleClick={onPageDoubleClick}
 			>
@@ -132,7 +134,7 @@ const _Page = ({
 				err.target.src = '/favicon.png'
 			}}
 			onClick={onPageClick}
-				draggable={false}
+			draggable={false}
 		/>
 	)
 }
