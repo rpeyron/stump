@@ -51,7 +51,7 @@ RUN apk add --no-cache git
 RUN --mount=type=cache,target=/usr/local/yarn/.cache,id=${TARGETARCH} \
     # https://github.com/nodejs/docker-node/issues/1335
     yarn config set network-timeout 300000 && \
-    YARN_CACHE_FOLDER=/usr/local/yarn/.cache yarn install --frozen-lockfile && \
+    YARN_CACHE_FOLDER=/usr/local/yarn/.cache yarn install --frozen-lockfile --ignore-scripts && \
     yarn web build && \
     mv ./apps/web/dist/ ./build && \
     if [ ! -d "./build" ] || [ ! "$(ls -A ./build)" ]; then exit 1; fi
