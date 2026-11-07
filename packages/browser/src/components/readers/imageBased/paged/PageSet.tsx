@@ -11,11 +11,12 @@ import { ImagePageDimensionRef, useImageBaseReaderContext } from '../context'
 type Props = {
 	currentPage: number
 	getPageUrl: (page: number) => string
-	onPageClick: () => void
+	onPageClick: (e: React.MouseEvent) => void
+	onPageDoubleClick: () => void
 }
 
 const PageSet = forwardRef<HTMLDivElement, Props>(
-	({ currentPage, getPageUrl, onPageClick }, ref) => {
+	({ currentPage, getPageUrl, onPageClick, onPageDoubleClick }, ref) => {
 		const { setPageSize, book, pageSets } = useImageBaseReaderContext()
 		const {
 			bookPreferences: { imageScaling, brightness, readingDirection },
@@ -43,11 +44,15 @@ const PageSet = forwardRef<HTMLDivElement, Props>(
 		return (
 			<div
 				ref={ref}
-				className="flex h-full shrink-0 justify-center"
+				className="flex h-full shrink-0 justify-center will-change-transform touch-none"
 				style={{
 					...styles[imageScaling.scaleToFit].imagesHolder,
 					filter: `brightness(${brightness * 100}%)`,
+					// The pan/zoom transform is applied about the center of the page
+					transformOrigin: 'center center',
+					touchAction: 'none',
 				}}
+				onDoubleClick={onPageDoubleClick}
 			>
 				<div
 					className={cn('relative flex w-full justify-center', {
@@ -96,6 +101,7 @@ type PageProps = Omit<Props, 'displayedPages' | 'currentPage'> & {
 	upsertDimensions: (page: number, dimensions: ImagePageDimensionRef) => void
 	imageScaling: BookImageScaling
 	style?: React.CSSProperties
+	onPageDoubleClick: () => void
 }
 
 // TODO(readers): consider exporting/relocating and sharing with the continuous reader(s)
@@ -103,6 +109,7 @@ const _Page = ({
 	page,
 	getPageUrl,
 	onPageClick,
+	onPageDoubleClick,
 	upsertDimensions,
 	imageScaling: { scaleToFit },
 	style,
@@ -125,6 +132,7 @@ const _Page = ({
 				err.target.src = '/favicon.png'
 			}}
 			onClick={onPageClick}
+				draggable={false}
 		/>
 	)
 }

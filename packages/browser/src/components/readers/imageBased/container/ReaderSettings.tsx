@@ -1,5 +1,5 @@
 import { BookPreferences, DEFAULT_BOOK_PREFERENCES } from '@stump/client'
-import { Input, NewCard, RawSwitch } from '@stump/components'
+import { Input, NativeSelect, NewCard, RawSwitch } from '@stump/components'
 import { ReadingMode } from '@stump/graphql'
 import omit from 'lodash/omit'
 import { useCallback, useMemo } from 'react'
@@ -12,6 +12,19 @@ import DoubleSpreadBehavior from './DoubleSpreadBehavior'
 import ImageScalingSelect from './ImageScalingSelect'
 import ReadingDirectionSelect from './ReadingDirectionSelect'
 import ReadingModeSelect from './ReadingModeSelect'
+
+/**
+ * The zoom levels offered for double tap zooming
+ */
+const DOUBLE_TAP_ZOOM_OPTIONS = [
+	{ label: 'Disabled', value: '0' },
+	{ label: '2x', value: '2' },
+	{ label: '2.5x', value: '2.5' },
+	{ label: '3x', value: '3' },
+	{ label: '4x', value: '4' },
+]
+
+const DEFAULT_DOUBLE_TAP_ZOOM = 0
 
 // locale org is a bit fucked after years of changes but it's fine lol
 const getSettingsSceneKey = (key: string) =>
@@ -192,6 +205,26 @@ export default function ReaderSettings({ forBook, currentPage }: Props) {
 					<RawSwitch
 						checked={activeSettings.tapSidesToNavigate}
 						onCheckedChange={(checked) => onPreferenceChange({ tapSidesToNavigate: checked })}
+					/>
+				</NewCard.Row>
+
+				<NewCard.Row
+					label={translate('shared.readerSettings.doubleTapZoom.label')}
+					description={translate('shared.readerSettings.doubleTapZoom.description')}
+				>
+					<NativeSelect
+						id="double-tap-zoom"
+						aria-label={translate('shared.readerSettings.doubleTapZoom.label')}
+						size="sm"
+						className="w-24"
+						options={DOUBLE_TAP_ZOOM_OPTIONS}
+						value={String(activeSettings.doubleTapZoom ?? DEFAULT_DOUBLE_TAP_ZOOM)}
+						onChange={(e) => {
+							const value = Number(e.target.value)
+							if (!Number.isNaN(value)) {
+								onPreferenceChange({ doubleTapZoom: value })
+							}
+						}}
 					/>
 				</NewCard.Row>
 			</NewCard>

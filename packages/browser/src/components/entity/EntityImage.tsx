@@ -29,10 +29,11 @@ const EntityImage = forwardRef<HTMLImageElement, Props>(({ src, onLoad, ...props
 					{...props}
 					ref={ref}
 					onLoad={handleImageLoad}
+					style={{ touchAction: 'none', ...props.style }}
 				/>
 			)
 		} else {
-			return <img src={src} {...props} ref={ref} onLoad={handleImageLoad} />
+			return <img src={src} {...props} ref={ref} onLoad={handleImageLoad} draggable={false} style={{ touchAction: 'none', ...props.style }} />
 		}
 	}
 

@@ -76,7 +76,7 @@ export const AuthImage = forwardRef<HTMLImageElement, Props>(({ token, src, ...p
 		return null
 	}
 
-	return <img {...props} ref={ref} src={imageURL ?? undefined} />
+	return <img {...props} ref={ref} src={imageURL ?? undefined} draggable={false} />
 })
 AuthImage.displayName = 'AuthImage'
 

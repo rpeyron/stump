@@ -1,4 +1,3 @@
-import Panzoom from '@panzoom/panzoom'
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -9,6 +8,7 @@ import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
 import { useImageBaseReaderContext } from '../context'
 import PageSet from './PageSet'
+import { usePanZoom } from './usePanZoom'
 
 export type PagedReaderProps = {
 	/** The current page which the reader should render */
@@ -29,10 +29,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	const {
 		bookPreferences: {
 			tapSidesToNavigate,
-			imageScaling,
-			secondPageSeparate,
-			doublePageBehavior,
 			panzoomWithoutCtrl,
+			doubleTapZoom,
 		},
 		settings: { showToolBar },
 		setSettings,
@@ -43,9 +41,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	const isMobile = useMediaMatch('(max-width: 768px)')
 
 	const pageSetRef = useRef<HTMLDivElement | null>(null)
-	const panzoomRef = useRef<ReturnType<typeof Panzoom> | null>(null)
-
-	const panningDetected = useRef(false)
+	const viewportRef = useRef<HTMLDivElement | null>(null)
+	const toolbarToggleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
 	const [pageSetWidth, setPageSetWidth] = useState(0)
 	useEffect(() => {
@@ -63,113 +60,23 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		}
 	}, [])
 
+	/**
+	 * Pan & zoom for the page set. Double tapping zooms in on the tapped point, and double
+	 * tapping while zoomed in returns the page to its "fit to screen" state.
+	 */
+	const { reset: resetPanZoom, consumeDidPan, didPan } = usePanZoom({
+		targetRef: pageSetRef,
+		viewportRef,
+		doubleTapScale: doubleTapZoom ?? 0,
+		requireModifier: !panzoomWithoutCtrl,
+	})
+
+	/**
+	 * Reset the zoom whenever the page changes, since the new page has different dimensions
+	 */
 	useEffect(() => {
-		const pageSetElement = pageSetRef.current
-		if (!pageSetElement) return
-
-		const parentElement = pageSetElement.parentElement
-		if (!parentElement) return
-
-		const handleWheel = (event: WheelEvent) => {
-			if (event.ctrlKey || panzoomWithoutCtrl) {
-				panzoomRef.current?.zoomWithWheel(event)
-			}
-		}
-
-		// Check panning vs clicking
-		let startX = 0
-		let startY = 0
-		const handlePointerDown = (event: PointerEvent) => {
-			if (event.button === 2) return
-
-			startX = event.clientX
-			startY = event.clientY
-
-			const isSidebarClicked = !!(event.target as HTMLElement).closest('.z-50')
-
-			if (!isSidebarClicked) {
-				panzoomRef.current?.handleDown(event)
-				parentElement.style.cursor = 'move'
-				pageSetElement.style.cursor = 'move'
-				event.preventDefault()
-			}
-		}
-		const handlePointerUp = (event: PointerEvent) => {
-			const deltaX = event.clientX - startX
-			const deltaY = event.clientY - startY
-			panzoomRef.current?.handleUp(event)
-			parentElement.style.cursor = 'default'
-			pageSetElement.style.cursor = 'default'
-			panningDetected.current = Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2
-			setTimeout(() => {
-				panningDetected.current = false
-			}, 100)
-		}
-		const handleMove = (event: PointerEvent) => {
-			panzoomRef.current?.handleMove(event)
-		}
-
-		/**
-		 * A function that manually calculates the correct panzoom origin due to the default origin X value being wrong
-		 *
-		 * Because we do not set pageSet imagesHolder to use w-full (for SideBarControl to expand up to the pageSet), then
-		 * for some reason '50%' from the left is marked as where this is: pageSetWidth / 2 to the left of the right side of the viewport.
-		 *
-		 * But the real center is at the center of the viewport so we must do the origin calculation with respect to this weird coordinate system.
-		 *
-		 * Hence we:
-		 * 1. Calculate the stretch factor required -> viewportWidth / pageSetWidth
-		 * 2. Calculate the fraction it is from the right side of the viewport -> 50% * viewportWidth / pageSetWidth
-		 * 3. Calculate the fraction it is from the left side of the viewport -> 1 - 50% * viewportWidth / pageSetWidth
-		 * 4. Convert to a percentage
-		 */
-		const panzoomOriginCalculation = () => {
-			const viewportWidth = window.innerWidth
-			const xOrigin = (1 - viewportWidth / (2 * pageSetWidth)) * 100
-			const origin = `${xOrigin}% 50%`
-			return origin
-		}
-
-		const createPanzoom = () => {
-			if (panzoomRef.current) {
-				panzoomRef.current.destroy()
-			}
-
-			const pz = Panzoom(pageSetElement, {
-				noBind: true,
-				cursor: 'default',
-				minScale: 0.8,
-				maxScale: 2.5,
-				origin: panzoomOriginCalculation(),
-			})
-
-			panzoomRef.current = pz
-		}
-
-		createPanzoom()
-
-		parentElement.addEventListener('wheel', handleWheel)
-		parentElement.addEventListener('pointerdown', handlePointerDown)
-		document.addEventListener('pointermove', handleMove)
-		document.addEventListener('pointerup', handlePointerUp)
-		window.addEventListener('resize', createPanzoom)
-
-		return () => {
-			parentElement.removeEventListener('wheel', handleWheel)
-			parentElement.removeEventListener('pointerdown', handlePointerDown)
-			document.removeEventListener('pointermove', handleMove)
-			document.removeEventListener('pointerup', handlePointerUp)
-			window.removeEventListener('resize', createPanzoom)
-			panzoomRef.current?.destroy()
-		}
-	}, [
-		currentPage,
-		imageScaling,
-		secondPageSeparate,
-		doublePageBehavior,
-		pageSetWidth,
-		panzoomWithoutCtrl,
-	])
+		resetPanZoom()
+	}, [currentPage, resetPanZoom])
 
 	const currentSetIdx = useMemo(
 		() => pageSets.findIndex((set) => set.includes(currentPage - 1)),
@@ -227,14 +134,14 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		const nextSet = pageSets[nextSetIdx]
 		const endOfNextSet = nextSet?.at(-1)
 
-		if (!nextSet || endOfNextSet == null || panningDetected.current) {
+		if (!nextSet || endOfNextSet == null || didPan()) {
 			return
 		}
 
 		if (nextSetIdx >= 0 && nextSetIdx < pageSets.length) {
 			doChangePage(endOfNextSet + 1)
 		}
-	}, [doChangePage, currentSetIdx, pageSets])
+	}, [didPan, doChangePage, currentSetIdx, pageSets])
 	/**
 	 * A callback to change the page to the right. This will respect the reading direction
 	 * and the double spread setting.
@@ -244,14 +151,14 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		const nextSet = pageSets[nextSetIdx]
 		const startOfNextSet = nextSet?.at(0)
 
-		if (!nextSet || startOfNextSet == null || panningDetected.current) {
+		if (!nextSet || startOfNextSet == null || didPan()) {
 			return
 		}
 
 		if (nextSetIdx >= 0 && nextSetIdx < pageSets.length) {
 			doChangePage(startOfNextSet + 1)
 		}
-	}, [doChangePage, currentSetIdx, pageSets])
+	}, [didPan, doChangePage, currentSetIdx, pageSets])
 
 	/**
 	 * A callback handler for changing the page or toggling the toolbar visibility via
@@ -291,7 +198,10 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	useHotkeys('right, left, a, d, space, escape', (_, handler) => hotKeyHandler(handler))
 
 	return (
-		<div className="relative m-auto flex w-screen justify-center">
+		<div
+			ref={viewportRef}
+			className="relative m-auto flex h-screen w-screen justify-center overflow-hidden"
+		>
 			{!showToolBar && tapSidesToNavigate && (
 				<SideBarControl
 					fixed={fixSideNavigation}
@@ -304,9 +214,31 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				ref={pageSetRef}
 				currentPage={currentPage}
 				getPageUrl={getPageUrl}
-				onPageClick={() => {
-					if (!panningDetected.current) {
+				onPageClick={(e) => {
+					if (consumeDidPan()) return
+					// If double-tap zoom is disabled, toggle immediately (no delay)
+					// If enabled, defer to allow double-click to cancel
+					const delay = doubleTapZoom && doubleTapZoom > 0 ? 300 : 0
+					if (delay === 0) {
 						setSettings({ showToolBar: !showToolBar })
+					} else {
+						if (toolbarToggleTimeoutRef.current) {
+							clearTimeout(toolbarToggleTimeoutRef.current)
+						}
+						toolbarToggleTimeoutRef.current = setTimeout(() => {
+							if (!consumeDidPan()) {
+								setSettings({ showToolBar: !showToolBar })
+							}
+							toolbarToggleTimeoutRef.current = null
+						}, delay)
+					}
+				}}
+				onPageDoubleClick={() => {
+					if (consumeDidPan()) return
+					// Cancel toolbar toggle on double-click
+					if (toolbarToggleTimeoutRef.current) {
+						clearTimeout(toolbarToggleTimeoutRef.current)
+						toolbarToggleTimeoutRef.current = null
 					}
 				}}
 			/>

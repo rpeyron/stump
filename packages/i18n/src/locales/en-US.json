@@ -3246,7 +3246,11 @@
       "allSettings": "All Settings",
       "separateSecondPage": "Separate Second Page",
       "tapSidesToNavigate": "Tap Sides to Navigate",
-      "panZoomWithoutCtrl": "Pan and zoom without Ctrl / Cmd"
+      "panZoomWithoutCtrl": "Pan and zoom without Ctrl / Cmd",
+      "doubleTapZoom": {
+        "label": "Double Tap Zoom",
+        "description": "How much to zoom in when double tapping the page. Double tapping while zoomed in returns the page to fit the screen."
+      }
     },
     "homeSections": {
       "onDeck": {

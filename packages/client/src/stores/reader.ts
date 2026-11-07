@@ -77,6 +77,11 @@ export type BookPreferences = {
 	 */
 	panzoomWithoutCtrl?: boolean
 	/**
+	 * The zoom level applied when double tapping the page. A double tap while zoomed in
+	 * returns the page to its "fit to screen" state.
+	 */
+	doubleTapZoom?: number
+	/**
 	 * The number of columns to render for a paginated EPUB. This will have no effect if the
 	 * book is not an EPUB, or if the reading mode is continuous scroll.
 	 */
@@ -159,7 +164,8 @@ export const DEFAULT_BOOK_PREFERENCES = {
 	},
 	doublePageBehavior: 'off',
 	secondPageSeparate: false,
-	panWithoutCtrl: false,
+	panzoomWithoutCtrl: false,
+	doubleTapZoom: 0,
 	trackElapsedTime: true,
 	tapSidesToNavigate: true,
 	columnCount: 'auto',
