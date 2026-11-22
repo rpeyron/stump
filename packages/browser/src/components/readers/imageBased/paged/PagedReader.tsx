@@ -1,3 +1,4 @@
+import { renderScaleForZoom } from '@stump/sdk'
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -40,13 +41,9 @@ const RIGHT_ARROW_CURSOR = svgCursor(
 )
 
 function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
-	const { pageSets, book, getPageUrl } = useImageBaseReaderContext()
+	const { pageSets, book, getPageUrl, setRenderScale } = useImageBaseReaderContext()
 	const {
-		bookPreferences: {
-			tapSidesToNavigate,
-			panzoomWithoutCtrl,
-			doubleTapZoom,
-		},
+		bookPreferences: { tapSidesToNavigate, panzoomWithoutCtrl, doubleTapZoom },
 		settings: { showToolBar },
 		setSettings,
 	} = useBookPreferences({ book })
@@ -79,12 +76,30 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	 * Pan & zoom for the page set. Double tapping zooms in on the tapped point, and double
 	 * tapping while zoomed in returns the page to its "fit to screen" state.
 	 */
-	const { reset: resetPanZoom, consumeDidPan, didPan, isZoomed } = usePanZoom({
+	const {
+		reset: resetPanZoom,
+		consumeDidPan,
+		didPan,
+		isZoomed,
+		scale,
+	} = usePanZoom({
 		targetRef: pageSetRef,
 		viewportRef,
 		doubleTapScale: doubleTapZoom ?? 0,
 		requireModifier: !panzoomWithoutCtrl,
 	})
+
+	/**
+	 * Request a higher quality render when the user zooms in, so that the page image stays
+	 * sharp instead of being blurry.
+	 *
+	 * The zoom level is bucketed into discrete quality tiers to avoid requesting a new
+	 * render for every step of a pinch gesture.
+	 */
+	const targetRenderScale = useMemo(() => renderScaleForZoom(scale), [scale])
+	useEffect(() => {
+		setRenderScale(targetRenderScale)
+	}, [setRenderScale, targetRenderScale])
 
 	/**
 	 * Reset the zoom whenever the page changes, since the new page has different dimensions

@@ -38,6 +38,17 @@ export type IImageBaseReaderContext = {
 	 */
 	getPageUrl: (page: number) => string
 	/**
+	 * The render scale which should be used when requesting pages. This is increased when
+	 * the user zooms in, so that the rendered image stays sharp.
+	 *
+	 * When `undefined`, the server's default render quality is used.
+	 */
+	renderScale?: number
+	/**
+	 * A function to set the render scale used when requesting pages
+	 */
+	setRenderScale: (scale?: number) => void
+	/**
 	 * The sizes of the pages in the book, as they are loaded
 	 */
 	imageSizes: Record<number, ImagePageDimensionRef>

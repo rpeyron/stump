@@ -236,7 +236,7 @@ pub async fn generate_thumbnail_from_book(
 	image_options: ImageProcessorOptions,
 ) -> Result<(Vec<u8>, PathBuf, Option<ImageMetadata>), ThumbnailGenerateError> {
 	let page = image_options.page.unwrap_or(1);
-	let (_, page_data) = get_page(book_path, page, core_config)
+	let (_, page_data) = get_page(book_path, page, core_config, None, None)
 		.await
 		.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
 
@@ -621,7 +621,7 @@ pub async fn generate_book_placeholder(
 			fs::read(&path).await?
 		},
 		_ => {
-			let (_, data) = get_page(&book.path, 1, ctx.config())
+			let (_, data) = get_page(&book.path, 1, ctx.config(), None, None)
 				.await
 				.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
 			data
@@ -669,7 +669,7 @@ async fn get_series_thumbnail_candidate(
 			fs::read(&path).await?
 		},
 		_ => {
-			let (_, data) = get_page(&first_book.path, 1, ctx.config())
+			let (_, data) = get_page(&first_book.path, 1, ctx.config(), None, None)
 				.await
 				.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
 			data
@@ -759,7 +759,7 @@ async fn get_library_thumbnail_candidate(
 			fs::read(&path).await?
 		},
 		_ => {
-			let (_, data) = get_page(&book.path, 1, ctx.config())
+			let (_, data) = get_page(&book.path, 1, ctx.config(), None, None)
 				.await
 				.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
 			data

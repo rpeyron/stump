@@ -212,6 +212,8 @@ pub async fn get_page(
 	path: impl AsRef<Path>,
 	page: i32,
 	config: &StumpConfig,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
 	let path = path.as_ref().to_path_buf();
 
@@ -223,7 +225,8 @@ pub async fn get_page(
 	// rendered on demand, so for get_page we flow through those to get things like
 	// caching etc.
 	if mime == "application/pdf" {
-		return pdf::get_page_async(&path, page, config).await;
+		return pdf::get_page_async(&path, page, config, dpi_override, max_dim_override)
+			.await;
 	}
 
 	let processor = get_processor(&path, config).await?;

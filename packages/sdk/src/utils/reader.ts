@@ -12,6 +12,48 @@ export type GeneratePageSetsParams = {
 	secondPageSeparate?: boolean
 }
 
+/**
+ * The minimum zoom level at which a higher quality render is requested.
+ */
+export const QUALITY_SCALE_THRESHOLD = 1.05
+
+/**
+ * The maximum render scale which may be requested from the server. This mirrors the
+ * server-side limit.
+ */
+export const MAX_RENDER_SCALE = 4
+
+/**
+ * The render quality tiers which are used when zooming. Rendering a PDF page at a higher
+ * DPI is expensive, so rather than requesting a render for every zoom step, the zoom level
+ * is bucketed into a small number of discrete quality tiers.
+ */
+export const RENDER_SCALE_TIERS = [1, 1.5, 2, 3] as const
+
+/**
+ * Determine the render scale which should be requested for a given zoom level.
+ *
+ * The zoom level is bucketed into discrete quality tiers so that the number of distinct
+ * images (and thus server-side renders) remains small. A zoom level at (or below) the
+ * "fit to screen" scale returns `undefined`, which means the server's default render
+ * quality should be used.
+ *
+ * @param zoomScale - The current zoom level of the reader. `1` is "fit to screen".
+ * @returns The render scale to request, or `undefined` to use the server default.
+ */
+export const renderScaleForZoom = (zoomScale?: number): number | undefined => {
+	if (!zoomScale || !Number.isFinite(zoomScale)) {
+		return undefined
+	}
+
+	if (zoomScale <= QUALITY_SCALE_THRESHOLD) {
+		return undefined
+	}
+
+	const tier = RENDER_SCALE_TIERS.find((scale) => zoomScale <= scale)
+	return tier ?? MAX_RENDER_SCALE
+}
+
 export const generatePageSets = ({
 	imageSizes,
 	pages,

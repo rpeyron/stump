@@ -45,6 +45,14 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	 */
 	const [currentPage, setCurrentPage] = useState(() => initialPage || 1)
 
+	/**
+	 * The render scale used when requesting page images. This is bumped up when the user
+	 * zooms in so that the rendered image stays sharp instead of being blurry.
+	 *
+	 * When `undefined`, the server's default render quality is used.
+	 */
+	const [renderScale, setRenderScale] = useState<number | undefined>(undefined)
+
 	const { imageSizes, setPageSize } = useImageSizes({ book: media })
 
 	const {
@@ -125,10 +133,15 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 
 	/**
 	 * A callback to get the URL of a page. This is *not* 0-indexed, so the first page is 1.
+	 *
+	 * The `scale` param is used to request a higher quality render when the user has
+	 * zoomed in. This is a no-op for non-PDF media, since the server only applies it when
+	 * rendering PDFs.
 	 */
 	const getPageUrl = useCallback(
-		(pageNumber: number) => sdk.media.bookPageURL(media.id, pageNumber),
-		[media.id, sdk.media],
+		(pageNumber: number) =>
+			sdk.media.bookPageURL(media.id, pageNumber, renderScale ? { scale: renderScale } : undefined),
+		[media.id, renderScale, sdk.media],
 	)
 
 	const lastPage = useMemo(() => media.pages, [media.pages])
@@ -208,6 +221,8 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 				imageSizes,
 				setCurrentPage: handleChangePage,
 				getPageUrl,
+				renderScale,
+				setRenderScale,
 				setPageSize,
 				pageSets,
 				timer,

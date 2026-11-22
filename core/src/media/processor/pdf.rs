@@ -118,7 +118,7 @@ impl MediaProcessor for PdfProcessor {
 		path: &Path,
 		page: i32,
 	) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
-		render_page_with_quality(path, page, &self.config, false)
+		render_page_with_quality(path, page, &self.config, false, None, None)
 	}
 
 	fn get_page_count(&self, path: &Path) -> Result<i32, MediaProcessorError> {
@@ -256,12 +256,18 @@ pub fn renderer(
 		})
 }
 
-/// Core rendering function with configurable quality
+/// Core rendering function with configurable quality.
+///
+/// `dpi_override` and `max_dim_override` allow callers (e.g. the REST API) to request a
+/// specific render quality on a per-request basis, overriding the server config defaults.
+/// When `None`, the values from `config` are used.
 pub fn render_page_with_quality(
 	path: &Path,
 	page: i32,
 	config: &StumpConfig,
 	force_high_quality: bool,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
 	let pdfium = renderer(&config.pdfium_path)?;
 	let document = pdfium.load_pdf_from_file(path.to_str().unwrap_or_default(), None)?;
@@ -278,10 +284,12 @@ pub fn render_page_with_quality(
 	let page_height = document_page.height().value;
 
 	// scale from PDF's 72 DPI base to configured DPI, then clamp to max dimension
-	let dpi_scale = config.pdf_render_dpi as f32 / 72.0;
+	let render_dpi = dpi_override.unwrap_or(config.pdf_render_dpi).max(1);
+	let max_dim = max_dim_override.unwrap_or(config.pdf_max_dimension);
+	let dpi_scale = render_dpi as f32 / 72.0;
 	let mut target_width = page_width * dpi_scale;
 	let mut target_height = page_height * dpi_scale;
-	let max_dim = config.pdf_max_dimension as f32;
+	let max_dim = max_dim as f32;
 	if max_dim > 0.0 && (target_width > max_dim || target_height > max_dim) {
 		let fit_scale = (max_dim / target_width).min(max_dim / target_height);
 		target_width *= fit_scale;
@@ -334,18 +342,33 @@ pub fn render_page_with_quality(
 }
 
 /// Async version of get_page with caching support
+///
+/// `dpi_override` and `max_dim_override` allow callers to request a specific render
+/// quality on a per-request basis. The cache key accounts for these overrides, so
+/// different qualities are cached separately.
 pub async fn get_page_async(
 	path: &Path,
 	page: i32,
 	config: &StumpConfig,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
 	if config.pdf_cache_pages {
-		if let Ok(Some(cached)) = get_cached_page(path, page, config).await {
+		if let Ok(Some(cached)) =
+			get_cached_page(path, page, config, dpi_override, max_dim_override).await
+		{
 			if config.pdf_prerender_range > 0 {
 				let path_owned = path.to_path_buf();
 				let config_owned = config.clone();
 				tokio::spawn(async move {
-					prerender_adjacent_pages(&path_owned, page, &config_owned).await;
+					prerender_adjacent_pages(
+						&path_owned,
+						page,
+						&config_owned,
+						dpi_override,
+						max_dim_override,
+					)
+					.await;
 				});
 			}
 			return Ok(cached);
@@ -356,20 +379,42 @@ pub async fn get_page_async(
 	let config_owned = config.clone();
 
 	let result = tokio::task::spawn_blocking(move || {
-		render_page_with_quality(&path_owned, page, &config_owned, false)
+		render_page_with_quality(
+			&path_owned,
+			page,
+			&config_owned,
+			false,
+			dpi_override,
+			max_dim_override,
+		)
 	})
 	.await??;
 
 	if config.pdf_cache_pages {
 		// non-fatal, does not rly matter if caching fails
-		let _ = cache_page(path, page, &result.1, config).await;
+		let _ = cache_page(
+			path,
+			page,
+			&result.1,
+			config,
+			dpi_override,
+			max_dim_override,
+		)
+		.await;
 	}
 
 	if config.pdf_cache_pages && config.pdf_prerender_range > 0 {
 		let path_owned = path.to_path_buf();
 		let config_owned = config.clone();
 		tokio::spawn(async move {
-			prerender_adjacent_pages(&path_owned, page, &config_owned).await;
+			prerender_adjacent_pages(
+				&path_owned,
+				page,
+				&config_owned,
+				dpi_override,
+				max_dim_override,
+			)
+			.await;
 		});
 	}
 
@@ -496,6 +541,8 @@ fn generate_cache_key(
 	pdf_path: &Path,
 	page: i32,
 	config: &StumpConfig,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) -> Result<String, MediaProcessorError> {
 	let metadata = std::fs::metadata(pdf_path)?;
 	let modified_time = metadata
@@ -512,8 +559,14 @@ fn generate_cache_key(
 	pdf_path.hash(&mut hasher);
 	file_size.hash(&mut hasher);
 	modified_time.hash(&mut hasher);
-	config.pdf_max_dimension.hash(&mut hasher);
-	config.pdf_render_dpi.hash(&mut hasher);
+	// Use the effective (possibly overridden) values so that different render qualities
+	// are cached separately
+	dpi_override
+		.unwrap_or(config.pdf_render_dpi)
+		.hash(&mut hasher);
+	max_dim_override
+		.unwrap_or(config.pdf_max_dimension)
+		.hash(&mut hasher);
 	config.pdf_render_format.hash(&mut hasher);
 	config.pdf_high_quality.hash(&mut hasher);
 	page.hash(&mut hasher);
@@ -526,12 +579,15 @@ async fn get_cached_page(
 	pdf_path: &Path,
 	page: i32,
 	config: &StumpConfig,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) -> Result<Option<(ContentType, Vec<u8>)>, MediaProcessorError> {
 	if !config.pdf_cache_pages {
 		return Ok(None);
 	}
 
-	let cache_key = generate_cache_key(pdf_path, page, config)?;
+	let cache_key =
+		generate_cache_key(pdf_path, page, config, dpi_override, max_dim_override)?;
 	let output_format = config.get_pdf_render_format();
 	let cache_file = config.pdf_cache_directory().join(format!(
 		"{}.{}",
@@ -562,12 +618,15 @@ async fn cache_page(
 	page: i32,
 	content: &[u8],
 	config: &StumpConfig,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) -> Result<(), MediaProcessorError> {
 	if !config.pdf_cache_pages || content.is_empty() {
 		return Ok(());
 	}
 
-	let cache_key = generate_cache_key(pdf_path, page, config)?;
+	let cache_key =
+		generate_cache_key(pdf_path, page, config, dpi_override, max_dim_override)?;
 	let cache_dir = config.pdf_cache_directory();
 
 	if !cache_dir.exists() {
@@ -609,6 +668,8 @@ async fn prerender_adjacent_pages(
 	pdf_path: &Path,
 	current_page: i32,
 	config: &StumpConfig,
+	dpi_override: Option<u32>,
+	max_dim_override: Option<u32>,
 ) {
 	if !config.pdf_cache_pages || config.pdf_prerender_range == 0 {
 		return;
@@ -648,20 +709,38 @@ async fn prerender_adjacent_pages(
 	// TODO: once the upstream issue is resolved revisit whether we can parallelize
 	// a bit instead of sequentially processing each page
 	for page in pages_to_render {
-		if let Ok(Some(_)) = get_cached_page(pdf_path, page, config).await {
+		if let Ok(Some(_)) =
+			get_cached_page(pdf_path, page, config, dpi_override, max_dim_override).await
+		{
 			continue; // already cached = no work
 		}
 
 		let path_clone = pdf_path.to_path_buf();
 		let config_clone = config.clone();
 		let render_result = tokio::task::spawn_blocking(move || {
-			render_page_with_quality(&path_clone, page, &config_clone, true)
+			render_page_with_quality(
+				&path_clone,
+				page,
+				&config_clone,
+				true,
+				dpi_override,
+				max_dim_override,
+			)
 		})
 		.await;
 
 		match render_result {
 			Ok(Ok((_, content))) => {
-				if let Err(e) = cache_page(pdf_path, page, &content, config).await {
+				if let Err(e) = cache_page(
+					pdf_path,
+					page,
+					&content,
+					config,
+					dpi_override,
+					max_dim_override,
+				)
+				.await
+				{
 					tracing::debug!(
 						pdf_path = %pdf_path.display(),
 						page,
@@ -821,7 +900,7 @@ mod tests {
 		// Test without cache
 		let mut no_cache_config = config.clone();
 		no_cache_config.pdf_cache_pages = false;
-		let result = get_page_async(path, 1, &no_cache_config).await;
+		let result = get_page_async(path, 1, &no_cache_config, None, None).await;
 		assert!(result.is_ok());
 
 		// Test with cache enabled
@@ -830,13 +909,46 @@ mod tests {
 		let temp_dir = tempfile::tempdir().unwrap();
 		cache_config.config_dir = temp_dir.path().to_string_lossy().to_string();
 
-		let result1 = get_page_async(path, 1, &cache_config).await;
+		let result1 = get_page_async(path, 1, &cache_config, None, None).await;
 		assert!(result1.is_ok());
 
 		// Second call should hit cache and yield identical output
-		let result2 = get_page_async(path, 1, &cache_config).await;
+		let result2 = get_page_async(path, 1, &cache_config, None, None).await;
 		assert!(result2.is_ok());
 		assert_eq!(result1.unwrap().1, result2.unwrap().1);
+	}
+
+	#[tokio::test]
+	async fn test_get_page_async_with_quality_overrides() {
+		if renderer(&None).is_err() {
+			eprintln!("Skipping test: PDFium is not configured or available.");
+			return;
+		}
+		let path_str = get_test_pdf_path();
+		let path = Path::new(&path_str);
+		let mut config = StumpConfig::debug();
+		config.pdf_cache_pages = true;
+		let temp_dir = tempfile::tempdir().unwrap();
+		config.config_dir = temp_dir.path().to_string_lossy().to_string();
+
+		let default = get_page_async(path, 1, &config, None, None).await.unwrap();
+		let high_quality = get_page_async(path, 1, &config, Some(300), Some(2400))
+			.await
+			.unwrap();
+
+		// The higher quality render should be larger than the default one
+		assert!(
+			high_quality.1.len() > default.1.len(),
+			"Expected the higher quality render to be larger ({} vs {})",
+			high_quality.1.len(),
+			default.1.len()
+		);
+
+		// Overrides should produce a distinct cache entry
+		let default_key = generate_cache_key(path, 1, &config, None, None).unwrap();
+		let override_key =
+			generate_cache_key(path, 1, &config, Some(300), Some(2400)).unwrap();
+		assert_ne!(default_key, override_key);
 	}
 
 	#[tokio::test]
@@ -854,11 +966,11 @@ mod tests {
 		config.config_dir = temp_dir.path().to_string_lossy().to_string();
 
 		// This will pre-render page 2 in the background when requesting page 1
-		let result = get_page_async(path, 1, &config).await;
+		let result = get_page_async(path, 1, &config, None, None).await;
 		assert!(result.is_ok());
 
 		// Now check if page 2 was successfully cached (poll to prevent timing flakiness under load)
-		let cache_key = generate_cache_key(path, 2, &config).unwrap();
+		let cache_key = generate_cache_key(path, 2, &config, None, None).unwrap();
 		let output_format = config.get_pdf_render_format();
 		let cache_file = config.pdf_cache_directory().join(format!(
 			"{}.{}",

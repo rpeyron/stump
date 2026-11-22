@@ -28,6 +28,7 @@ const createReaderContext = (): IImageBaseReaderContext => ({
 	imageSizes: {},
 	pageSets: [],
 	setCurrentPage: vi.fn(),
+	setRenderScale: vi.fn(),
 	setPageSize: vi.fn(),
 	timer: {
 		getCurrentTime: vi.fn(() => 0),

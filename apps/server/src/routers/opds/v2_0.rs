@@ -1447,7 +1447,7 @@ async fn get_book_page(
 		.ok_or(APIError::NotFound("Book not found".to_string()))?;
 
 	let (content_type, image_buffer) =
-		get_page(PathBuf::from(book.path), page, &ctx.config).await?;
+		get_page(PathBuf::from(book.path), page, &ctx.config, None, None).await?;
 
 	Ok(ImageResponse::new(content_type, image_buffer))
 }

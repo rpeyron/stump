@@ -814,7 +814,7 @@ async fn get_book_thumbnail(
 	};
 
 	let (content_type, image_buffer) =
-		get_page(PathBuf::from(book.path), 1, &adjusted_config).await?;
+		get_page(PathBuf::from(book.path), 1, &adjusted_config, None, None).await?;
 
 	handle_opds_image_response(content_type, image_buffer)
 }
@@ -862,8 +862,14 @@ async fn get_book_page(
 		tracing::trace!(?reading_session, "Upserted active reading session");
 	}
 
-	let (content_type, image_buffer) =
-		get_page(PathBuf::from(book.path), correct_page, &ctx.config).await?;
+	let (content_type, image_buffer) = get_page(
+		PathBuf::from(book.path),
+		correct_page,
+		&ctx.config,
+		None,
+		None,
+	)
+	.await?;
 
 	handle_opds_image_response(content_type, image_buffer)
 }

@@ -45,8 +45,7 @@ type Point = { x: number; y: number }
 
 const TAP_MOVE_THRESHOLD = 8
 
-const clamp = (value: number, min: number, max: number) =>
-	Math.min(max, Math.max(min, value))
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 /**
  * Apply the transform to the element. This is done imperatively rather than via React state
@@ -91,10 +90,17 @@ export function usePanZoom({
 	 */
 	const [isZoomed, setIsZoomed] = useState(false)
 
+	/**
+	 * The current zoom level. This is tracked as state (rather than read from the ref) so
+	 * that it can be used during render, e.g. to request a higher quality image.
+	 */
+	const [scale, setScale] = useState(1)
+
 	const applyState = useCallback(
 		(next: PanZoomState) => {
 			stateRef.current = next
 			setIsZoomed(isZoomedState(next))
+			setScale(next.scale)
 			applyTransform(targetRef.current, next)
 		},
 		[targetRef],
@@ -137,9 +143,7 @@ export function usePanZoom({
 			const measurements = measure()
 			if (!measurements) return
 
-			applyState(
-				zoomToScale(measurements, clamp(scale, minScale, maxScale), focal),
-			)
+			applyState(zoomToScale(measurements, clamp(scale, minScale, maxScale), focal))
 		},
 		[applyState, measure, minScale, maxScale],
 	)
@@ -150,7 +154,7 @@ export function usePanZoom({
 	const toViewportPoint = useCallback(
 		(clientX: number, clientY: number): Point => {
 			const el = targetRef.current
-			const viewportEl = (viewportRef?.current ?? el?.parentElement) ?? null
+			const viewportEl = viewportRef?.current ?? el?.parentElement ?? null
 			if (!viewportEl) return { x: clientX, y: clientY }
 
 			const viewportRect = viewportEl.getBoundingClientRect()
@@ -342,7 +346,15 @@ export function usePanZoom({
 				el.removeEventListener('dblclick', handleDoubleClick)
 			}
 		}
-	}, [targetRef, handlePointerDown, handlePointerMove, handlePointerUp, handleWheel, handleDoubleClick, doubleTapScale])
+	}, [
+		targetRef,
+		handlePointerDown,
+		handlePointerMove,
+		handlePointerUp,
+		handleWheel,
+		handleDoubleClick,
+		doubleTapScale,
+	])
 
 	/**
 	 * Whether the user has panned (as opposed to tapped) since the last check. Used to
@@ -368,6 +380,7 @@ export function usePanZoom({
 
 	return {
 		isZoomed,
+		scale,
 		reset,
 		zoomTo,
 		consumeDidPan,

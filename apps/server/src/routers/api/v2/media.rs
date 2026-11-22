@@ -76,7 +76,7 @@ pub(crate) async fn get_media_thumbnail(
 	if let Some((content_type, bytes)) = generated_thumb {
 		Ok((content_type, bytes))
 	} else {
-		Ok(get_page(&book.path, 1, &adjusted_config).await?)
+		Ok(get_page(&book.path, 1, &adjusted_config, None, None).await?)
 	}
 }
 
@@ -139,10 +139,29 @@ pub(crate) async fn get_media_thumbnail_handler(
 	get_media_thumbnail_by_id(&ctx, &req.user(), id).await
 }
 
+/// Query parameters which can be used to request a specific render quality for a page.
+///
+/// These are primarily used by the readers to request a higher quality render when the
+/// user zooms in, since the default render is sized for a "fit to screen" view.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MediaPageQuery {
+	/// A multiplier applied to the server's configured render quality. A value of `2` will
+	/// render the page at twice the configured DPI (and twice the max dimension).
+	///
+	/// Only applies to PDF files.
+	pub scale: Option<f32>,
+}
+
+/// The maximum scale which may be requested for a page render. This prevents clients from
+/// requesting arbitrarily large images.
+const MAX_REQUESTED_SCALE: f32 = 4.0;
+
 async fn get_media_page(
 	Path((id, page)): Path<(String, u32)>,
 	State(ctx): State<AppState>,
 	Extension(req): Extension<AuthContext>,
+	axum::extract::Query(query): axum::extract::Query<MediaPageQuery>,
 ) -> APIResult<ImageResponse> {
 	let book = media::Entity::find_for_user(&req.user())
 		.filter(media::Column::Id.eq(id.clone()))
@@ -151,7 +170,29 @@ async fn get_media_page(
 		.await?
 		.ok_or(APIError::NotFound("Book not found".to_string()))?;
 
-	let content = get_page(&book.path, page.try_into()?, ctx.config.as_ref()).await?;
+	// Clamp the requested quality to sane bounds so that a malicious (or buggy) client
+	// cannot request an enormous image.
+	let scale = query
+		.scale
+		.filter(|scale| scale.is_finite() && *scale > 0.0)
+		.map(|scale| scale.min(MAX_REQUESTED_SCALE));
+
+	let (dpi_override, max_dim_override) = scale.map_or((None, None), |scale| {
+		let config = ctx.config.as_ref();
+		(
+			Some((config.pdf_render_dpi as f32 * scale).round() as u32),
+			Some((config.pdf_max_dimension as f32 * scale).round() as u32),
+		)
+	});
+
+	let content = get_page(
+		&book.path,
+		page.try_into()?,
+		ctx.config.as_ref(),
+		dpi_override,
+		max_dim_override,
+	)
+	.await?;
 
 	Ok(ImageResponse::from(content))
 }

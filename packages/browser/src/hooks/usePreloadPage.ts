@@ -24,7 +24,12 @@ type Params = {
 export function usePreloadPage({ pages, urlBuilder, onStoreDimensions }: Params) {
 	const [isPreloading, setIsPreloading] = useState(false)
 
-	const preloadRef = useRef<Record<number, boolean>>({})
+	/**
+	 * The pages which have already been preloaded, keyed by their url. Keying by url (rather
+	 * than by page number) ensures that pages are re-preloaded when the url changes, e.g.
+	 * when the requested render quality changes because the user has zoomed in.
+	 */
+	const preloadRef = useRef<Record<string, boolean>>({})
 
 	/**
 	 * This effect will attempt to preload all pages by creating an image element
@@ -33,19 +38,20 @@ export function usePreloadPage({ pages, urlBuilder, onStoreDimensions }: Params)
 	 * It currently does not handle errors, but it could be extended to do so.
 	 */
 	useEffect(() => {
-		const filteredPages = pages.filter((page) => !preloadRef.current[page])
+		const pageUrls = new Map(pages.map((page) => [page, urlBuilder(page)] as const))
+		const filteredPages = pages.filter((page) => !preloadRef.current[pageUrls.get(page)!])
 		const shouldPreload = filteredPages.length > 0
 
 		if (!shouldPreload) return
 
 		filteredPages.forEach((page) => {
-			preloadRef.current[page] = true
+			preloadRef.current[pageUrls.get(page)!] = true
 		})
 
 		const preloadPage = (page: number) => {
 			const image = new Image()
 			return new Promise((resolve, reject) => {
-				image.src = urlBuilder(page)
+				image.src = pageUrls.get(page)!
 				image.onload = () => {
 					if (image.width && image.height) {
 						onStoreDimensions?.(page, {
