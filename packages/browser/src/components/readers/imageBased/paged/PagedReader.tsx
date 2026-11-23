@@ -149,10 +149,13 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			scrollPositionMap.current.set(currentSetIdx, { scrollTop: scrollTop, timestamp: Date.now() })
 
 			if (newPage <= book.pages && newPage > 0) {
+				// Reset the zoom before navigating, so that the new page is shown at its
+				// "fit to screen" size rather than inheriting the previous zoom level.
+				resetPanZoom()
 				onPageChange(newPage)
 			}
 		},
-		[book.pages, onPageChange, currentSetIdx],
+		[book.pages, onPageChange, currentSetIdx, resetPanZoom],
 	)
 
 	/**
@@ -234,6 +237,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		>
 			{!showToolBar && tapSidesToNavigate && (
 				<SideBarControl
+					disabled={isZoomed}
 					fixed={fixSideNavigation}
 					position="left"
 					cursor={LEFT_ARROW_CURSOR}
@@ -277,6 +281,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 
 			{!showToolBar && tapSidesToNavigate && (
 				<SideBarControl
+					disabled={isZoomed}
 					fixed={fixSideNavigation}
 					position="right"
 					cursor={RIGHT_ARROW_CURSOR}
@@ -296,6 +301,12 @@ type SideBarControlProps = {
 	fixed: boolean
 	/** Optional cursor override */
 	cursor?: string
+	/**
+	 * Whether the control is disabled. When disabled, the control does not capture any
+	 * pointer events, so that the underlying content (e.g. a zoomed page) can be
+	 * interacted with instead.
+	 */
+	disabled?: boolean
 }
 
 /**
@@ -303,7 +314,7 @@ type SideBarControlProps = {
  * clicked, will call the onClick callback. This is used in the `PagedReader` component for
  * navigating to the next/previous page.
  */
-function SideBarControl({ onClick, position, fixed, cursor }: SideBarControlProps) {
+function SideBarControl({ onClick, position, fixed, cursor, disabled }: SideBarControlProps) {
 	return (
 		<div
 			className={clsx(
@@ -314,7 +325,12 @@ function SideBarControl({ onClick, position, fixed, cursor }: SideBarControlProp
 				{ 'left-0': position === 'left' },
 			)}
 			onClick={onClick}
-			style={{ cursor: cursor ?? 'inherit' }}
+			style={{
+				cursor: cursor ?? 'inherit',
+				// When disabled, the control must not swallow pointer events, otherwise it
+				// would sit on top of the zoomed content and prevent panning it.
+				pointerEvents: disabled ? 'none' : undefined,
+			}}
 		/>
 	)
 }

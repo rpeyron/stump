@@ -174,6 +174,11 @@ export function usePanZoom({
 			// Ignore interactions with overlay controls (e.g. the side navigation)
 			if ((event.target as HTMLElement)?.closest?.('.z-50')) return
 
+			// The pointerdown may be handled twice when the listener is attached to the
+			// viewport (the event bubbles up from the page element), so ignore pointers
+			// which are already being tracked.
+			if (pointersRef.current.has(event.pointerId)) return
+
 			// Prevent the browser's native image drag from hijacking the gesture (breaks panning)
 			event.preventDefault()
 
@@ -284,6 +289,10 @@ export function usePanZoom({
 			if (!enabled) return
 			if (requireModifier && !event.ctrlKey && !event.metaKey) return
 
+			// The event may bubble up from the page element to the viewport, in which case
+			// it has already been handled.
+			if (event.defaultPrevented) return
+
 			const measurements = measure()
 			if (!measurements) return
 
@@ -303,6 +312,10 @@ export function usePanZoom({
 		(event: MouseEvent) => {
 			if (!enabled) return
 			if (doubleTapScale === 0) return
+
+			// The event may bubble up from the page element to the viewport, in which case
+			// it has already been handled.
+			if (event.defaultPrevented) return
 
 			const measurements = measure()
 			if (!measurements) return
@@ -324,30 +337,52 @@ export function usePanZoom({
 		const el = targetRef.current
 		if (!el) return
 
-		el.addEventListener('pointerdown', handlePointerDown)
+		/**
+		 * The element which receives the initial `pointerdown`. When zoomed in, the content
+		 * may not cover the whole viewport (e.g. a letterboxed page), so we listen on the
+		 * viewport instead in order to allow panning from anywhere on screen.
+		 */
+		const pointerDownTarget = isZoomed ? (viewportRef?.current ?? el) : el
+
+		pointerDownTarget.addEventListener('pointerdown', handlePointerDown)
 		// Listen on the document so a drag keeps generating events even once the
 		// cursor leaves the (possibly transformed / smaller) page element. This is
 		// what makes panning work reliably, in particular after a double-tap zoom.
 		document.addEventListener('pointermove', handlePointerMove)
 		document.addEventListener('pointerup', handlePointerUp)
 		document.addEventListener('pointercancel', handlePointerUp)
-		el.addEventListener('wheel', handleWheel, { passive: false })
+		// When zoomed in, the content may not cover the whole viewport (e.g. a
+		// letterboxed page), so listen for wheel events on the viewport as well in order
+		// to allow zooming from anywhere on screen.
+		const wheelTarget = isZoomed ? pointerDownTarget : el
+		wheelTarget.addEventListener('wheel', handleWheel, { passive: false })
 		if (doubleTapScale !== 0) {
 			el.addEventListener('dblclick', handleDoubleClick)
+			// When zoomed in, the content may not cover the whole viewport, so listen for
+			// double taps on the viewport as well in order to allow zooming back out
+			// from anywhere on screen.
+			if (pointerDownTarget !== el) {
+				pointerDownTarget.addEventListener('dblclick', handleDoubleClick)
+			}
 		}
 
 		return () => {
-			el.removeEventListener('pointerdown', handlePointerDown)
+			pointerDownTarget.removeEventListener('pointerdown', handlePointerDown)
 			document.removeEventListener('pointermove', handlePointerMove)
 			document.removeEventListener('pointerup', handlePointerUp)
 			document.removeEventListener('pointercancel', handlePointerUp)
-			el.removeEventListener('wheel', handleWheel)
+			wheelTarget.removeEventListener('wheel', handleWheel)
 			if (doubleTapScale !== 0) {
 				el.removeEventListener('dblclick', handleDoubleClick)
+				if (pointerDownTarget !== el) {
+					pointerDownTarget.removeEventListener('dblclick', handleDoubleClick)
+				}
 			}
 		}
 	}, [
 		targetRef,
+		viewportRef,
+		isZoomed,
 		handlePointerDown,
 		handlePointerMove,
 		handlePointerUp,
