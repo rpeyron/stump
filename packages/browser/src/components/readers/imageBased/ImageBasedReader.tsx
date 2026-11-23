@@ -1,6 +1,6 @@
 import { DEFAULT_BOOK_PREFERENCES, useSDK } from '@stump/client'
 import { ReadingDirection, ReadingMode } from '@stump/graphql'
-import { generatePageSets } from '@stump/sdk'
+import { generatePageSets, MAX_RENDER_SCALE, renderScaleForZoom } from '@stump/sdk'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -12,10 +12,16 @@ import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 import { useBookTimer } from '@/stores/reader'
 
 import ReaderContainer from './container'
-import { ImageBaseReaderContext, ImageReaderBookRef } from './context'
+import { ImageBaseReaderContext, ImagePageDimensionRef, ImageReaderBookRef } from './context'
 import { ContinuousScrollReader } from './continuous'
 import { AnimatedPagedReader, PagedReader } from './paged'
 import { useImageSizes } from './useImageSizes'
+
+/**
+ * The default render scale used when preloading the current page at a high quality. This
+ * is used when the user has not configured a double-tap zoom level.
+ */
+const DEFAULT_PRELOAD_SCALE = 2
 
 type Props = {
 	/**
@@ -36,6 +42,13 @@ type Props = {
 export default function ImageBasedReader({ media, isIncognito, initialPage, onProgress }: Props) {
 	const { sdk } = useSDK()
 	const paths = usePaths()
+
+	/**
+	 * The media API controller. This is memoized because `sdk.media` is a getter which
+	 * creates a new instance on every access, which would invalidate any callback
+	 * depending on it.
+	 */
+	const mediaApi = useMemo(() => sdk.media, [sdk])
 
 	const client = useQueryClient()
 	const navigate = useNavigate()
@@ -59,6 +72,7 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 		settings: { preload, showToolBar, animatedReader },
 		bookPreferences: {
 			doublePageBehavior = DEFAULT_BOOK_PREFERENCES.doublePageBehavior,
+			doubleTapZoom,
 			readingMode,
 			readingDirection,
 			trackElapsedTime,
@@ -140,8 +154,32 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	 */
 	const getPageUrl = useCallback(
 		(pageNumber: number) =>
-			sdk.media.bookPageURL(media.id, pageNumber, renderScale ? { scale: renderScale } : undefined),
-		[media.id, renderScale, sdk.media],
+			mediaApi.bookPageURL(media.id, pageNumber, renderScale ? { scale: renderScale } : undefined),
+		[media.id, mediaApi, renderScale],
+	)
+
+	/**
+	 * The render scale used when preloading the current page at a high quality. This is
+	 * derived from the double-tap zoom preference, since that is the quality the page
+	 * will need once the user zooms in.
+	 *
+	 * The scale is bucketed using the same tiers as {@link renderScaleForZoom}, so that the
+	 * preloaded image is exactly the image which will be requested once the user zooms in.
+	 * Otherwise the browser cache would not be able to serve it.
+	 */
+	const preloadScale = useMemo(() => {
+		const targetScale = doubleTapZoom && doubleTapZoom > 1 ? doubleTapZoom : DEFAULT_PRELOAD_SCALE
+		return renderScaleForZoom(targetScale) ?? MAX_RENDER_SCALE
+	}, [doubleTapZoom])
+
+	/**
+	 * A callback to get the URL of a page at a high render quality, regardless of the
+	 * current zoom level. This is used to preload the current page at a sharp quality so
+	 * that it is ready by the time the user zooms in.
+	 */
+	const getScaledPageUrl = useCallback(
+		(pageNumber: number) => mediaApi.bookPageURL(media.id, pageNumber, { scale: preloadScale }),
+		[media.id, mediaApi, preloadScale],
 	)
 
 	const lastPage = useMemo(() => media.pages, [media.pages])
@@ -161,16 +199,31 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	)
 
 	/**
+	 * Whether the media is a PDF. Only PDFs are rendered server-side, so they are the only
+	 * media for which requesting a higher quality has any effect.
+	 */
+	const isPdf = useMemo(() => media.extension?.toLowerCase() === 'pdf', [media.extension])
+
+	/**
 	 * Preload pages that are not currently visible. This is done to try and
 	 * prevent wait times for the next page to load.
 	 */
 	// TODO: Fix on desktop
-	usePreloadPage({
-		onStoreDimensions: (page, dimensions) => {
+	const storeDimensions = useCallback(
+		(page: number, dimensions: ImagePageDimensionRef) => {
 			setPageSize(page - 1, dimensions)
 		},
+		[setPageSize],
+	)
+	usePreloadPage({
+		onStoreDimensions: storeDimensions,
 		pages: pagesToPreload,
 		urlBuilder: getPageUrl,
+		// The current page is preloaded at a higher quality *after* the adjacent pages have
+		// been preloaded, so that zooming in on the current page does not compete with
+		// them for bandwidth.
+		scaledPage: isPdf ? currentPage : undefined,
+		scaledUrlBuilder: getScaledPageUrl,
 	})
 
 	/**

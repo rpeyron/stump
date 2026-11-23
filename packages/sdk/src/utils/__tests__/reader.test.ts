@@ -1,6 +1,39 @@
-import { generatePageSets, ImageBasedBookPageRef } from '../reader'
+import {
+	generatePageSets,
+	ImageBasedBookPageRef,
+	MAX_RENDER_SCALE,
+	renderScaleForZoom,
+} from '../reader'
 
 describe('reader utils', () => {
+	describe('renderScaleForZoom', () => {
+		it('should not request a higher quality render when not zoomed in', () => {
+			expect(renderScaleForZoom(undefined)).toBeUndefined()
+			expect(renderScaleForZoom(0)).toBeUndefined()
+			expect(renderScaleForZoom(1)).toBeUndefined()
+			expect(renderScaleForZoom(1.05)).toBeUndefined()
+		})
+
+		it('should bucket the zoom level into discrete quality tiers', () => {
+			expect(renderScaleForZoom(1.1)).toBe(1.5)
+			expect(renderScaleForZoom(1.5)).toBe(1.5)
+			expect(renderScaleForZoom(1.6)).toBe(2)
+			expect(renderScaleForZoom(2)).toBe(2)
+			expect(renderScaleForZoom(2.5)).toBe(3)
+			expect(renderScaleForZoom(3)).toBe(3)
+		})
+
+		it('should cap the render scale at the maximum', () => {
+			expect(renderScaleForZoom(3.5)).toBe(MAX_RENDER_SCALE)
+			expect(renderScaleForZoom(100)).toBe(MAX_RENDER_SCALE)
+		})
+
+		it('should ignore non-finite zoom levels', () => {
+			expect(renderScaleForZoom(NaN)).toBeUndefined()
+			expect(renderScaleForZoom(Infinity)).toBeUndefined()
+		})
+	})
+
 	describe('generatePageSets', () => {
 		const originalWarn = console.warn
 		beforeAll(() => {
