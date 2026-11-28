@@ -83,8 +83,7 @@ export const deriveMetrics = ({ rect, state }: Measurements): Metrics => {
 	}
 }
 
-const clamp = (value: number, min: number, max: number) =>
-	Math.min(max, Math.max(min, value))
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 /**
  * The range of translations which keep the content covering the viewport on a single axis.
@@ -109,6 +108,47 @@ export const offsetLimits = (
 	return {
 		min: viewportSize - contentCenter - half,
 		max: half - contentCenter,
+	}
+}
+
+/**
+ * The horizontal edges of the content, relative to the viewport.
+ */
+export type EdgeState = {
+	/**
+	 * Whether the content's left edge is flush with the viewport's left edge, i.e. the
+	 * beginning of the content is visible and there is nothing left to reveal by panning.
+	 */
+	left: boolean
+	/**
+	 * Whether the content's right edge is flush with the viewport's right edge, i.e. the end
+	 * of the content is visible and there is nothing right to reveal by panning.
+	 */
+	right: boolean
+}
+
+/**
+ * Determine which of the content's horizontal edges are flush with the viewport's edges.
+ *
+ * Since panning is constrained so that the content always covers the viewport, an edge is
+ * only flush once the content has been panned all the way in that direction. This is used to
+ * decide when the page-change zones become actionable while the content is zoomed in.
+ */
+export const deriveEdges = (
+	metrics: Metrics,
+	state: PanZoomState,
+	viewportWidth: number,
+	epsilon = 1,
+): EdgeState => {
+	const limits = offsetLimits(metrics.width, viewportWidth, state.scale, metrics.centerX)
+
+	return {
+		// The content's left edge is flush with the viewport's left edge when the content
+		// has been panned all the way to the right.
+		left: state.x >= limits.max - epsilon,
+		// ...and its right edge is flush with the viewport's right edge when the content
+		// has been panned all the way to the left.
+		right: state.x <= limits.min + epsilon,
 	}
 }
 
@@ -158,8 +198,18 @@ export const zoomToScale = (
 		nextY = focal.y - metrics.centerY - contentY * nextScale
 	}
 
-	const limitsX = offsetLimits(metrics.width, measurements.viewport.width, nextScale, metrics.centerX)
-	const limitsY = offsetLimits(metrics.height, measurements.viewport.height, nextScale, metrics.centerY)
+	const limitsX = offsetLimits(
+		metrics.width,
+		measurements.viewport.width,
+		nextScale,
+		metrics.centerX,
+	)
+	const limitsY = offsetLimits(
+		metrics.height,
+		measurements.viewport.height,
+		nextScale,
+		metrics.centerY,
+	)
 
 	return {
 		scale: nextScale,

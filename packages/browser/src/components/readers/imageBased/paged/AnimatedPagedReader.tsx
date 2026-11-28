@@ -189,6 +189,7 @@ const ItemRenderer = forwardRef<HTMLDivElement, ListChildComponentProps>(
 					pageSet={pageSet}
 					getPageUrl={getPageUrl}
 					onPageClick={toggleToolbar}
+					onPageDoubleClick={() => {}}
 				/>
 			</div>
 		)
@@ -200,6 +201,7 @@ type ReactWindowPageSetWrapperProps = {
 	pageSet: number[]
 	getPageUrl: (page: number) => string
 	onPageClick: () => void
+	onPageDoubleClick: () => void
 }
 
 /**
@@ -207,11 +209,18 @@ type ReactWindowPageSetWrapperProps = {
  * It takes a pageSet array and renders a PageSet for the first page in the set.
  */
 const ReactWindowPageSetWrapper = memo(
-	({ pageSet, getPageUrl, onPageClick }: ReactWindowPageSetWrapperProps) => {
+	({ pageSet, getPageUrl, onPageClick, onPageDoubleClick }: ReactWindowPageSetWrapperProps) => {
 		// Use the first page in the set as the current page for PageSet
 		const currentPage = (pageSet[0] ?? 0) + 1 // Convert from 0-indexed to 1-indexed
 
-		return <PageSet currentPage={currentPage} getPageUrl={getPageUrl} onPageClick={onPageClick} />
+		return (
+			<PageSet
+				currentPage={currentPage}
+				getPageUrl={getPageUrl}
+				onPageClick={onPageClick}
+				onPageDoubleClick={onPageDoubleClick}
+			/>
+		)
 	},
 )
 

@@ -72,11 +72,19 @@ export const AuthImage = forwardRef<HTMLImageElement, Props>(({ token, src, ...p
 	const imageURL =
 		loadedImage && loadedImage.src === src && loadedImage.token === token ? loadedImage.url : null
 
-	if (!imageURL) {
+	/**
+	 * When the src changes (e.g. the page is requested at a higher quality because the
+	 * user zoomed in), the newly loaded image is not available yet. Rather than rendering
+	 * nothing - which would result in a blank page while the image loads - the previously
+	 * loaded image is kept on screen until the new one is ready.
+	 */
+	const fallbackURL = loadedImage?.url ?? null
+
+	if (!imageURL && !fallbackURL) {
 		return null
 	}
 
-	return <img {...props} ref={ref} src={imageURL ?? undefined} draggable={false} />
+	return <img {...props} ref={ref} src={imageURL ?? fallbackURL ?? undefined} draggable={false} />
 })
 AuthImage.displayName = 'AuthImage'
 

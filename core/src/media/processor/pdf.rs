@@ -357,7 +357,11 @@ pub async fn get_page_async(
 		if let Ok(Some(cached)) =
 			get_cached_page(path, page, config, dpi_override, max_dim_override).await
 		{
-			if config.pdf_prerender_range > 0 {
+			// The adjacent pages are only pre-rendered at the *default* quality. When a
+			// specific quality is requested (e.g. by a client which is preloading a page
+			// at a higher resolution), pre-rendering the neighbours at that quality would
+			// monopolize the renderer and delay the page which was actually asked for.
+			if config.pdf_prerender_range > 0 && dpi_override.is_none() {
 				let path_owned = path.to_path_buf();
 				let config_owned = config.clone();
 				tokio::spawn(async move {
@@ -365,8 +369,8 @@ pub async fn get_page_async(
 						&path_owned,
 						page,
 						&config_owned,
-						dpi_override,
-						max_dim_override,
+						None,
+						None,
 					)
 					.await;
 				});
@@ -403,18 +407,12 @@ pub async fn get_page_async(
 		.await;
 	}
 
-	if config.pdf_cache_pages && config.pdf_prerender_range > 0 {
+	if config.pdf_cache_pages && config.pdf_prerender_range > 0 && dpi_override.is_none()
+	{
 		let path_owned = path.to_path_buf();
 		let config_owned = config.clone();
 		tokio::spawn(async move {
-			prerender_adjacent_pages(
-				&path_owned,
-				page,
-				&config_owned,
-				dpi_override,
-				max_dim_override,
-			)
-			.await;
+			prerender_adjacent_pages(&path_owned, page, &config_owned, None, None).await;
 		});
 	}
 

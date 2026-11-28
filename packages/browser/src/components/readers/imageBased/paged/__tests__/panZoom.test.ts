@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	deriveEdges,
 	deriveMetrics,
 	fitToScreen,
 	isZoomed,
@@ -145,6 +146,46 @@ describe('zoomToScale', () => {
 		// content's center must land on the viewport's center
 		expect(metrics.centerX + next.x).toBeCloseTo(500)
 		expect(metrics.centerY + next.y).toBeCloseTo(400)
+	})
+})
+
+describe('deriveEdges', () => {
+	it('considers both edges flush when the content fills the viewport', () => {
+		const measurements = buildMeasurements({ scale: 1, x: 0, y: 0 })
+		const metrics = deriveMetrics(measurements)
+		const edges = deriveEdges(metrics, measurements.state, measurements.viewport.width)
+
+		expect(edges.left).toBe(true)
+		expect(edges.right).toBe(true)
+	})
+
+	it('does not consider edges flush until the content is panned all the way', () => {
+		// Content is 1500x1200 at scale 3 in a 1000x800 viewport
+		const measurements = buildMeasurements({ scale: 3, x: 0, y: 0 })
+		const metrics = deriveMetrics(measurements)
+		const edges = deriveEdges(metrics, measurements.state, measurements.viewport.width)
+
+		// Centered: neither edge is flush with the viewport
+		expect(edges.left).toBe(false)
+		expect(edges.right).toBe(false)
+	})
+
+	it('considers the left edge flush when panned all the way right', () => {
+		const measurements = buildMeasurements({ scale: 3, x: 250, y: 0 })
+		const metrics = deriveMetrics(measurements)
+		const edges = deriveEdges(metrics, measurements.state, measurements.viewport.width)
+
+		expect(edges.left).toBe(true)
+		expect(edges.right).toBe(false)
+	})
+
+	it('considers the right edge flush when panned all the way left', () => {
+		const measurements = buildMeasurements({ scale: 3, x: -250, y: 0 })
+		const metrics = deriveMetrics(measurements)
+		const edges = deriveEdges(metrics, measurements.state, measurements.viewport.width)
+
+		expect(edges.left).toBe(false)
+		expect(edges.right).toBe(true)
 	})
 })
 

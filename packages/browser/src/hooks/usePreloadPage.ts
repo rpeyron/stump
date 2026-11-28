@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ImagePageDimensionRef } from '@/components/readers/imageBased/context'
 
@@ -16,8 +16,12 @@ type Params = {
 	 */
 	onStoreDimensions?: (page: number, dimensions: ImagePageDimensionRef) => void
 	/**
-	 * An additional page to preload *after* the main pages, typically the current page at a
+	 * An additional page to preload at a higher quality, typically the current page at a
 	 * scaled (zoomed) quality so that it is sharp as soon as the user zooms in.
+	 *
+	 * This page is preloaded *independently* of the other pages, so that it is never held
+	 * back by them. It is the page the user is currently looking at, so it should always
+	 * be the highest priority.
 	 */
 	scaledPage?: number
 	/**
@@ -48,27 +52,16 @@ export function usePreloadPage({
 	const preloadRef = useRef<Record<string, boolean>>({})
 
 	/**
-	 * This effect will attempt to preload all pages by creating an image element
-	 * for each page and setting the src to the urlBuilder function.
+	 * Preload a single page by creating an image element and setting its src.
 	 *
-	 * The `scaledPage` (if provided) is preloaded *after* the main pages, so that the
-	 * current page is sharp as soon as the user zooms in. Since the adjacent pages are
-	 * preloaded at their normal quality first, zooming in on the current page does not
-	 * have to compete with them for bandwidth.
-	 *
-	 * It currently does not handle errors, but it could be extended to do so.
+	 * @param page - The page being preloaded
+	 * @param src - The url to load
+	 * @param storeDimensions - Whether the dimensions of the image should be stored. This
+	 * is disabled for scaled renders, since the natural dimensions of the page should
+	 * always be preferred when laying out the reader.
 	 */
-	useEffect(() => {
-		/**
-		 * Preload a single page by creating an image element and setting its src.
-		 *
-		 * @param page - The page being preloaded
-		 * @param src - The url to load
-		 * @param storeDimensions - Whether the dimensions of the image should be stored. This
-		 * is disabled for scaled renders, since the natural dimensions of the page should
-		 * always be preferred when laying out the reader.
-		 */
-		const preloadPage = (page: number, src: string, storeDimensions: boolean) => {
+	const preloadPage = useCallback(
+		(page: number, src: string, storeDimensions: boolean) => {
 			const image = new Image()
 			return new Promise<void>((resolve, reject) => {
 				image.src = src
@@ -84,8 +77,21 @@ export function usePreloadPage({
 				}
 				image.onerror = (error) => reject(error)
 			})
-		}
+		},
+		[onStoreDimensions],
+	)
 
+	/**
+	 * This effect will attempt to preload all pages by creating an image element
+	 * for each page and setting the src to the urlBuilder function.
+	 *
+	 * The `scaledPage` (if provided) is preloaded *independently* of the other pages, so
+	 * that the page the user is currently reading is sharp as soon as they zoom in. It is
+	 * never held back by the adjacent pages, since it is the one being looked at.
+	 *
+	 * It currently does not handle errors, but it could be extended to do so.
+	 */
+	useEffect(() => {
 		const pageUrls = new Map(pages.map((page) => [page, urlBuilder(page)] as const))
 		const filteredPages = pages.filter((page) => !preloadRef.current[pageUrls.get(page)!])
 
@@ -101,33 +107,40 @@ export function usePreloadPage({
 			preloadRef.current[scaledUrl] = true
 		}
 
+		/**
+		 * Preload the current page at scaled quality. This is done independently of the
+		 * adjacent pages so that the zoomed page is displayed as soon as *its own* load
+		 * has completed, rather than waiting for the other pages.
+		 */
+		const preloadScaled = async () => {
+			if (!scaledUrl || !scaledPage) return
+
+			try {
+				await preloadPage(scaledPage, scaledUrl, false)
+			} catch (error) {
+				console.error(error)
+			}
+		}
+
 		const preloadPages = async () => {
 			setIsPreloading(true)
-			const results = await Promise.allSettled(
+
+			const scaledPromise = preloadScaled()
+			const pagesPromise = Promise.allSettled(
 				filteredPages.map((page) => preloadPage(page, pageUrls.get(page)!, true)),
 			)
+
+			const [results] = await Promise.all([pagesPromise, scaledPromise])
 			const errors = results.filter((result) => result.status === 'rejected')
 			if (errors.length) {
 				console.error(errors)
-			}
-
-			/**
-			 * Preload the current page at scaled quality after the adjacent pages.
-			 * This ensures the page the user is reading stays sharp when zoomed in.
-			 */
-			if (scaledUrl && scaledPage) {
-				try {
-					await preloadPage(scaledPage, scaledUrl, false)
-				} catch (error) {
-					console.error(error)
-				}
 			}
 
 			setIsPreloading(false)
 		}
 
 		preloadPages()
-	}, [pages, urlBuilder, onStoreDimensions, scaledPage, scaledUrlBuilder])
+	}, [pages, urlBuilder, onStoreDimensions, scaledPage, scaledUrlBuilder, preloadPage])
 
 	return { isPreloading }
 }

@@ -45,7 +45,7 @@ const PageSet = forwardRef<HTMLDivElement, Props>(
 		return (
 			<div
 				ref={ref}
-				className="flex h-full shrink-0 justify-center will-change-transform touch-none"
+				className="flex h-full shrink-0 touch-none justify-center will-change-transform"
 				style={{
 					...styles[imageScaling.scaleToFit].imagesHolder,
 					filter: `brightness(${brightness * 100}%)`,
@@ -98,12 +98,11 @@ PageSet.displayName = 'PageSet'
 
 export default PageSet
 
-type PageProps = Omit<Props, 'displayedPages' | 'currentPage'> & {
+type PageProps = Omit<Props, 'displayedPages' | 'currentPage' | 'onPageDoubleClick'> & {
 	page: number
 	upsertDimensions: (page: number, dimensions: ImagePageDimensionRef) => void
 	imageScaling: BookImageScaling
 	style?: React.CSSProperties
-	onPageDoubleClick: () => void
 }
 
 // TODO(readers): consider exporting/relocating and sharing with the continuous reader(s)
@@ -111,7 +110,6 @@ const _Page = ({
 	page,
 	getPageUrl,
 	onPageClick,
-	onPageDoubleClick,
 	upsertDimensions,
 	imageScaling: { scaleToFit },
 	style,

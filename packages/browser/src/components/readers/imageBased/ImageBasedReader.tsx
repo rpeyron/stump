@@ -146,16 +146,37 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	)
 
 	/**
+	 * The pages which are currently displayed alongside the current page, i.e. the set
+	 * which contains the current page. These are the pages which are on screen, and thus
+	 * the ones which need to be rendered at a higher quality when the user zooms in.
+	 */
+	const currentSetPages = useMemo(() => {
+		const setIdx = pageSets.findIndex((set) => set.includes(currentPage - 1))
+		if (setIdx === -1) return [currentPage]
+
+		return (pageSets[setIdx] ?? [currentPage - 1]).map((idx) => idx + 1)
+	}, [currentPage, pageSets])
+
+	/**
 	 * A callback to get the URL of a page. This is *not* 0-indexed, so the first page is 1.
 	 *
 	 * The `scale` param is used to request a higher quality render when the user has
 	 * zoomed in. This is a no-op for non-PDF media, since the server only applies it when
 	 * rendering PDFs.
+	 *
+	 * The scale is only applied to the pages which are currently on screen, so that the
+	 * adjacent pages keep their default-quality URLs and are not re-requested when the
+	 * user zooms in. This means only the page(s) the user is actually looking at get
+	 * re-rendered at a higher quality, instead of every single page on screen.
 	 */
 	const getPageUrl = useCallback(
 		(pageNumber: number) =>
-			mediaApi.bookPageURL(media.id, pageNumber, renderScale ? { scale: renderScale } : undefined),
-		[media.id, mediaApi, renderScale],
+			mediaApi.bookPageURL(
+				media.id,
+				pageNumber,
+				renderScale && currentSetPages.includes(pageNumber) ? { scale: renderScale } : undefined,
+			),
+		[media.id, mediaApi, renderScale, currentSetPages],
 	)
 
 	/**
@@ -176,10 +197,16 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	 * A callback to get the URL of a page at a high render quality, regardless of the
 	 * current zoom level. This is used to preload the current page at a sharp quality so
 	 * that it is ready by the time the user zooms in.
+	 *
+	 * When the user is already zoomed in, the *current* render scale is used, so that the
+	 * preloaded image is exactly the one which is being displayed. This means the preload
+	 * is a no-op while the page is already being displayed at that quality, but it does
+	 * kick off the fetch for a new quality tier as soon as the zoom level changes.
 	 */
 	const getScaledPageUrl = useCallback(
-		(pageNumber: number) => mediaApi.bookPageURL(media.id, pageNumber, { scale: preloadScale }),
-		[media.id, mediaApi, preloadScale],
+		(pageNumber: number) =>
+			mediaApi.bookPageURL(media.id, pageNumber, { scale: renderScale ?? preloadScale }),
+		[media.id, mediaApi, renderScale, preloadScale],
 	)
 
 	const lastPage = useMemo(() => media.pages, [media.pages])
@@ -219,9 +246,9 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 		onStoreDimensions: storeDimensions,
 		pages: pagesToPreload,
 		urlBuilder: getPageUrl,
-		// The current page is preloaded at a higher quality *after* the adjacent pages have
-		// been preloaded, so that zooming in on the current page does not compete with
-		// them for bandwidth.
+		// The current page is preloaded at a higher quality *independently* of the
+		// adjacent pages, so that the zoomed page is displayed as soon as *its own* load
+		// has completed, rather than waiting for the other pages.
 		scaledPage: isPdf ? currentPage : undefined,
 		scaledUrlBuilder: getScaledPageUrl,
 	})

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+	deriveEdges,
+	deriveMetrics,
 	fitToScreen,
 	isZoomed as isZoomedState,
 	type Measurements,
@@ -96,12 +98,30 @@ export function usePanZoom({
 	 */
 	const [scale, setScale] = useState(1)
 
+	/**
+	 * Whether the content's left/right edges are flush with the viewport's edges. This is
+	 * used to decide when the page-change zones become actionable while zoomed in.
+	 */
+	const [edges, setEdges] = useState({ left: true, right: true })
+
 	const applyState = useCallback(
-		(next: PanZoomState) => {
+		(next: PanZoomState, measurements?: Measurements | null) => {
 			stateRef.current = next
 			setIsZoomed(isZoomedState(next))
 			setScale(next.scale)
 			applyTransform(targetRef.current, next)
+
+			// The content's metrics do not change when it is panned or zoomed, so the
+			// edges can be derived from the measurements which were taken before the
+			// transform was applied. This avoids an additional synchronous reflow.
+			if (measurements) {
+				const metrics = deriveMetrics(measurements)
+				const nextEdges = deriveEdges(metrics, next, measurements.viewport.width)
+
+				setEdges((prev) =>
+					prev.left === nextEdges.left && prev.right === nextEdges.right ? prev : nextEdges,
+				)
+			}
 		},
 		[targetRef],
 	)
@@ -132,22 +152,40 @@ export function usePanZoom({
 	}, [targetRef, viewportRef])
 
 	/**
+	 * Recompute which of the content's edges are flush with the viewport's edges. The
+	 * measurements may be passed in when they have already been taken, in order to avoid
+	 * forcing an additional synchronous reflow.
+	 */
+	const refreshEdges = useCallback(
+		(measurements?: Measurements | null) => {
+			const current = measurements ?? measure()
+			if (!current) return
+
+			const metrics = deriveMetrics(current)
+			const next = deriveEdges(metrics, current.state, current.viewport.width)
+
+			setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next))
+		},
+		[measure],
+	)
+
+	/**
 	 * Reset the content to its "fit to screen" state
 	 */
 	const reset = useCallback(() => {
 		applyState(fitToScreen())
-	}, [applyState])
+		refreshEdges()
+	}, [applyState, refreshEdges])
 
 	const zoomTo = useCallback(
 		(scale: number, focal?: Point) => {
 			const measurements = measure()
 			if (!measurements) return
 
-			applyState(zoomToScale(measurements, clamp(scale, minScale, maxScale), focal))
+			applyState(zoomToScale(measurements, clamp(scale, minScale, maxScale), focal), measurements)
 		},
 		[applyState, measure, minScale, maxScale],
 	)
-
 	/**
 	 * Convert client (viewport) coordinates into viewport-relative coordinates
 	 */
@@ -221,7 +259,7 @@ export function usePanZoom({
 					const nextScale = clamp(stateRef.current.scale * ratio, minScale, maxScale)
 					const midpoint = toViewportPoint((a.x + b.x) / 2, (a.y + b.y) / 2)
 
-					applyState(zoomToScale(measurements, nextScale, midpoint))
+					applyState(zoomToScale(measurements, nextScale, midpoint), measurements)
 					didPanRef.current = true
 				}
 
@@ -236,7 +274,7 @@ export function usePanZoom({
 			const deltaX = event.clientX - start.x
 			const deltaY = event.clientY - start.y
 
-			applyState(panBy(measurements, deltaX, deltaY))
+			applyState(panBy(measurements, deltaX, deltaY), measurements)
 
 			panStartRef.current = { x: event.clientX, y: event.clientY }
 
@@ -303,7 +341,7 @@ export function usePanZoom({
 			const nextScale = clamp(stateRef.current.scale * factor, minScale, maxScale)
 			const focal = toViewportPoint(event.clientX, event.clientY)
 
-			applyState(zoomToScale(measurements, nextScale, focal))
+			applyState(zoomToScale(measurements, nextScale, focal), measurements)
 		},
 		[applyState, enabled, measure, maxScale, minScale, requireModifier, toViewportPoint],
 	)
@@ -416,6 +454,10 @@ export function usePanZoom({
 	return {
 		isZoomed,
 		scale,
+		/**
+		 * Whether the content's left/right edges are flush with the viewport's edges.
+		 */
+		edges,
 		reset,
 		zoomTo,
 		consumeDidPan,

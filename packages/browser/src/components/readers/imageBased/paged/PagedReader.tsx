@@ -80,6 +80,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		reset: resetPanZoom,
 		consumeDidPan,
 		didPan,
+		edges,
 		isZoomed,
 		scale,
 	} = usePanZoom({
@@ -88,6 +89,16 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		doubleTapScale: doubleTapZoom ?? 0,
 		requireModifier: !panzoomWithoutCtrl,
 	})
+
+	/**
+	 * Whether the page-change zones should be actionable. When the content is zoomed in,
+	 * the zones only become actionable once the zoomed content has been panned all the way
+	 * to the corresponding edge. This way, tapping the sides of the screen does not change
+	 * the page while the user is still inspecting the zoomed content, but it still works
+	 * once there is nothing left to reveal in that direction.
+	 */
+	const canChangeLeft = !isZoomed || edges.left
+	const canChangeRight = !isZoomed || edges.right
 
 	/**
 	 * Request a higher quality render when the user zooms in, so that the page image stays
@@ -237,7 +248,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		>
 			{!showToolBar && tapSidesToNavigate && (
 				<SideBarControl
-					disabled={isZoomed}
+					disabled={!canChangeLeft}
 					fixed={fixSideNavigation}
 					position="left"
 					cursor={LEFT_ARROW_CURSOR}
@@ -250,7 +261,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				currentPage={currentPage}
 				getPageUrl={getPageUrl}
 				isZoomed={isZoomed}
-				onPageClick={(e) => {
+				onPageClick={() => {
 					if (consumeDidPan()) return
 					// If double-tap zoom is disabled, toggle immediately (no delay)
 					// If enabled, defer to allow double-click to cancel
@@ -281,7 +292,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 
 			{!showToolBar && tapSidesToNavigate && (
 				<SideBarControl
-					disabled={isZoomed}
+					disabled={!canChangeRight}
 					fixed={fixSideNavigation}
 					position="right"
 					cursor={RIGHT_ARROW_CURSOR}
@@ -326,9 +337,11 @@ function SideBarControl({ onClick, position, fixed, cursor, disabled }: SideBarC
 			)}
 			onClick={onClick}
 			style={{
-				cursor: cursor ?? 'inherit',
 				// When disabled, the control must not swallow pointer events, otherwise it
-				// would sit on top of the zoomed content and prevent panning it.
+				// would sit on top of the zoomed content and prevent panning it. The
+				// cursor is reset as well so that it does not advertise an action which
+				// cannot be performed.
+				cursor: disabled ? 'inherit' : (cursor ?? 'inherit'),
 				pointerEvents: disabled ? 'none' : undefined,
 			}}
 		/>
